@@ -1,0 +1,11 @@
+backend/node_modules/
+mobile/build/
+mobile/.dart_tool/
+mobile/.idea/
+mobile/.packages
+mobile/.flutter-plugins
+mobile/.flutter-plugins-dependencies
+mobile/android/.gradle/
+mobile/android/local.properties
+backend/.env
+*.log
