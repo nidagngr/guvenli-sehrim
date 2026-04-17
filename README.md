@@ -1,5 +1,7 @@
 # Guvenli Sehirim
 
+Nida Gungormus
+
 Ad Soyad: Nidasu Gungormus
 Ogrenci No: 22080410007
 
