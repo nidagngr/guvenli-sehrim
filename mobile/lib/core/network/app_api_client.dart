@@ -25,6 +25,8 @@ class AppApiClient {
   final Dio dio;
 
   static String _resolveBaseUrl() {
+    const configuredBaseUrl = String.fromEnvironment('API_BASE_URL');
+    if (configuredBaseUrl.isNotEmpty) return configuredBaseUrl;
     if (kIsWeb) return 'http://localhost:3000';
     if (Platform.isAndroid) return 'http://10.0.2.2:3000';
     return 'http://localhost:3000';

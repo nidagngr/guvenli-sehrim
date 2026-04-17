@@ -1,8 +1,8 @@
 import 'package:dio/dio.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
-import '../../../../core/models/repository_response.dart';
-import '../../../../core/network/app_api_client.dart';
+import '../../../core/models/repository_response.dart';
+import '../../../core/network/app_api_client.dart';
 import '../domain/entities/doviz_gunu.dart';
 import '../domain/repositories/doviz_repository.dart';
 

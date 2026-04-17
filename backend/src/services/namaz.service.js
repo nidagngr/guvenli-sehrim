@@ -1,62 +1,80 @@
-const { namazUrl } = require('../config/env');
 const { http } = require('../utils/http');
 
 const prayerNames = [
-  ['imsak', 'Fajr'],
-  ['gunes', 'Sunrise'],
-  ['ogle', 'Dhuhr'],
-  ['ikindi', 'Asr'],
-  ['aksam', 'Maghrib'],
-  ['yatsi', 'Isha'],
+  ['imsak', 'imsak'],
+  ['gunes', 'gunes'],
+  ['ogle', 'ogle'],
+  ['ikindi', 'ikindi'],
+  ['aksam', 'aksam'],
+  ['yatsi', 'yatsi'],
 ];
 
-function buildFallback(date = new Date()) {
+function toDateTime(date, time) {
+  return new Date(`${date}T${time}:00+03:00`);
+}
+
+function computeNextPrayer(times, todayDate) {
+  const now = new Date();
+
+  for (const [key] of prayerNames) {
+    const at = toDateTime(todayDate, times[key]);
+    if (at > now) {
+      return {
+        nextPrayer: key,
+        remainingSeconds: Math.max(0, Math.floor((at.getTime() - now.getTime()) / 1000)),
+      };
+    }
+  }
+
+  const tomorrowImsak = toDateTime(todayDate, times.imsak);
+  tomorrowImsak.setDate(tomorrowImsak.getDate() + 1);
   return {
-    imsak: '04:55',
-    gunes: '06:20',
-    ogle: '12:52',
-    ikindi: '16:29',
-    aksam: '19:13',
-    yatsi: '20:33',
-    tarih: date.toISOString(),
+    nextPrayer: 'imsak',
+    remainingSeconds: Math.max(0, Math.floor((tomorrowImsak.getTime() - now.getTime()) / 1000)),
   };
 }
 
-function enrichDay(raw, city, offset) {
-  const date = new Date();
-  date.setDate(date.getDate() + offset);
-  const times = prayerNames.map(([key]) => ({ name: key, time: raw[key] }));
-  return { city, date: date.toISOString(), times };
+async function resolveDistrict(city) {
+  const response = await http.get('https://ezanvakti.imsakiyem.com/api/locations/search/districts', {
+    params: { q: city },
+  });
+
+  const matches = response.data?.data || [];
+  const normalizedCity = city.trim().toLowerCase();
+  const exactMatch = matches.find((item) => String(item.name || '').trim().toLowerCase() === normalizedCity);
+  return exactMatch || matches[0];
 }
 
 async function getPrayerTimes(city = 'Istanbul') {
-  try {
-    const response = await http.get(`${namazUrl}/api/timesFromPlace`, {
-      params: { city, country: 'Turkey', days: 7, timezoneOffset: 3 },
-    });
-    const data = Array.isArray(response.data) ? response.data : response.data?.data || [];
-    const first = data[0] || buildFallback();
-    return {
-      city,
-      date: first.tarih || new Date().toISOString(),
-      nextPrayer: 'ogle',
-      remainingSeconds: 3600,
-      times: prayerNames.map(([key]) => ({ name: key, time: first[key] || buildFallback()[key] })),
-      weekly: data.slice(0, 7).map((item, index) => enrichDay(item, city, index)),
-      meta: { source: 'vakit' },
-    };
-  } catch (error) {
-    const first = buildFallback();
-    return {
-      city,
-      date: first.tarih,
-      nextPrayer: 'ogle',
-      remainingSeconds: 3600,
-      times: prayerNames.map(([key]) => ({ name: key, time: first[key] })),
-      weekly: Array.from({ length: 7 }).map((_, index) => enrichDay(first, city, index)),
-      meta: { source: 'vakit-fallback', error: error.message },
-    };
+  const district = await resolveDistrict(city);
+  if (!district?._id) {
+    throw new Error(`Namaz verisi icin ilce bulunamadi: ${city}`);
   }
+
+  const response = await http.get(`https://ezanvakti.imsakiyem.com/api/prayer-times/${district._id}/weekly`);
+  const data = response.data?.data || [];
+  const today = data[0];
+
+  if (!today) {
+    throw new Error(`Namaz verisi bulunamadi: ${city}`);
+  }
+
+  const todayDate = String(today.miladi_tarih_uzun_iso8601 || today.miladi_tarih_kisa_iso8601 || new Date().toISOString()).slice(0, 10);
+  const next = computeNextPrayer(today, todayDate);
+
+  return {
+    city: district.name,
+    date: todayDate,
+    nextPrayer: next.nextPrayer,
+    remainingSeconds: next.remainingSeconds,
+    times: prayerNames.map(([name, key]) => ({ name, time: today[key] })),
+    weekly: data.slice(0, 7).map((item) => ({
+      city: district.name,
+      date: String(item.miladi_tarih_uzun_iso8601 || item.miladi_tarih_kisa_iso8601 || new Date().toISOString()),
+      times: prayerNames.map(([name, key]) => ({ name, time: item[key] })),
+    })),
+    meta: { source: 'imsakiyem', cached: false },
+  };
 }
 
 module.exports = { getPrayerTimes };

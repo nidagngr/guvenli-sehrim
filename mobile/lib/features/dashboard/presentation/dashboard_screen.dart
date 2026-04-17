@@ -10,10 +10,30 @@ import '../../deprem/presentation/deprem_provider.dart';
 import '../../namaz/presentation/namaz_provider.dart';
 import '../../weather/presentation/hava_provider.dart';
 
-class DashboardScreen extends StatelessWidget {
+class DashboardScreen extends StatefulWidget {
   const DashboardScreen({required this.onNavigate, super.key});
 
   final ValueChanged<int> onNavigate;
+
+  @override
+  State<DashboardScreen> createState() => _DashboardScreenState();
+}
+
+class _DashboardScreenState extends State<DashboardScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      await Future.wait([
+        context.read<DepremProvider>().load(),
+        context.read<HavaProvider>().load(),
+        context.read<AqiProvider>().load(),
+        context.read<NamazProvider>().load(),
+        context.read<DovizProvider>().load(),
+      ]);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -85,10 +105,12 @@ class DashboardScreen extends StatelessWidget {
               cardKey: AppKeys.dashboardDepremCard,
               title: 'Deprem',
               subtitle: 'AFAD son olaylar',
-              onTap: () => onNavigate(1),
+              onTap: () => widget.onNavigate(1),
               child: Text(
                 deprem.filtered.isEmpty
-                    ? 'Veri yok'
+                    ? deprem.items.isEmpty
+                        ? 'Veri yok'
+                        : 'Son 24 saatte kayit yok'
                     : 'Son ${deprem.filtered.length} kayit, en buyuk M${deprem.filtered.first.magnitude.toStringAsFixed(1)}',
               ),
             ),
@@ -96,7 +118,7 @@ class DashboardScreen extends StatelessWidget {
               cardKey: AppKeys.dashboardHavaCard,
               title: 'Hava',
               subtitle: hava.lastUpdated != null ? 'Guncel: ${DateFormat.Hm().format(hava.lastUpdated!)}' : null,
-              onTap: () => onNavigate(2),
+              onTap: () => widget.onNavigate(2),
               child: Text(
                 hava.weather == null ? 'Veri yok' : '${hava.weather!.temperature.toStringAsFixed(0)} C | ${hava.weather!.description}',
               ),
@@ -105,21 +127,21 @@ class DashboardScreen extends StatelessWidget {
               cardKey: AppKeys.dashboardAqiCard,
               title: 'AQI',
               subtitle: 'Istanbul istasyonlari',
-              onTap: () => onNavigate(3),
+              onTap: () => widget.onNavigate(3),
               child: Text(aqi.data == null ? 'Veri yok' : '${aqi.data!.aqi} | ${aqi.data!.category}'),
             ),
             InfoCard(
               cardKey: AppKeys.dashboardNamazCard,
               title: 'Namaz',
               subtitle: namaz.data?.city ?? 'Istanbul',
-              onTap: () => onNavigate(4),
+              onTap: () => widget.onNavigate(4),
               child: Text(namaz.data == null ? 'Veri yok' : '${namaz.data!.nextPrayer} icin ${namaz.formattedRemaining}'),
             ),
             InfoCard(
               cardKey: AppKeys.dashboardDovizCard,
               title: 'Doviz',
               subtitle: doviz.data?.date,
-              onTap: () => onNavigate(5),
+              onTap: () => widget.onNavigate(5),
               child: Text(
                 doviz.data == null || doviz.data!.rates.isEmpty
                     ? 'Veri yok'

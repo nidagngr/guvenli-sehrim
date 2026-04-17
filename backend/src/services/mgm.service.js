@@ -1,74 +1,107 @@
-const { mgmUrl } = require('../config/env');
 const { http } = require('../utils/http');
 
-const cityCoords = {
-  Ankara: { merkezId: 6 },
-  Istanbul: { merkezId: 34 },
-  Izmir: { merkezId: 35 },
-  Bursa: { merkezId: 16 },
-};
+function weatherCodeToDescription(code) {
+  const map = {
+    0: { description: 'Acik', icon: 'sunny' },
+    1: { description: 'Parcali bulutlu', icon: 'partly_cloudy' },
+    2: { description: 'Bulutlu', icon: 'cloudy' },
+    3: { description: 'Cok bulutlu', icon: 'cloudy' },
+    45: { description: 'Sisli', icon: 'fog' },
+    48: { description: 'Kirağı sisli', icon: 'fog' },
+    51: { description: 'Hafif cise', icon: 'rainy' },
+    53: { description: 'Cise', icon: 'rainy' },
+    55: { description: 'Yogun cise', icon: 'rainy' },
+    61: { description: 'Hafif yagmur', icon: 'rainy' },
+    63: { description: 'Yagmur', icon: 'rainy' },
+    65: { description: 'Kuvvetli yagmur', icon: 'rainy' },
+    71: { description: 'Hafif kar', icon: 'snowy' },
+    73: { description: 'Kar', icon: 'snowy' },
+    75: { description: 'Yogun kar', icon: 'snowy' },
+    80: { description: 'Sagank yagmur', icon: 'rainy' },
+    81: { description: 'Yagmur gecisleri', icon: 'rainy' },
+    82: { description: 'Kuvvetli saganak', icon: 'rainy' },
+    95: { description: 'Firtina', icon: 'storm' },
+  };
 
-function buildWeather(city = 'Ankara') {
-  const temperatures = [22, 24, 20, 18, 21, 25];
-  return {
-    city,
-    merkezId: cityCoords[city]?.merkezId || 6,
-    current: {
-      sicaklik: 22,
-      hissedilen: 23,
-      nem: 45,
-      ruzgarHizi: 12,
-      ruzgarYonu: 110,
-      basinc: 1013,
-      durumKodu: 'A',
-      aciklama: 'Acik ve gunesli',
-      icon: 'sunny',
-      olcumZamani: new Date().toISOString(),
+  return map[code] || { description: 'Bilinmiyor', icon: 'cloudy' };
+}
+
+async function resolveCity(city) {
+  const response = await http.get('https://geocoding-api.open-meteo.com/v1/search', {
+    params: {
+      name: city,
+      count: 1,
+      language: 'tr',
+      countryCode: 'TR',
     },
-    hourly: Array.from({ length: 8 }).map((_, index) => ({
-      saat: `${String((9 + index) % 24).padStart(2, '0')}:00`,
-      sicaklik: temperatures[index % temperatures.length],
-      icon: index % 3 === 0 ? 'sunny' : index % 3 === 1 ? 'cloudy' : 'rainy',
-    })),
-    daily: ['Paz', 'Pzt', 'Sal', 'Car', 'Per'].map((gun, index) => ({
-      gun,
-      min: 14 + index,
-      max: 20 + index,
-      icon: index === 2 ? 'rainy' : index === 1 ? 'cloudy' : 'sunny',
-    })),
-    favorites: ['Istanbul', 'Bitlis', 'Izmir'],
+  });
+
+  const match = response.data?.results?.[0];
+  if (!match) {
+    throw new Error(`Sehir bulunamadi: ${city}`);
+  }
+
+  return {
+    city: match.name,
+    latitude: match.latitude,
+    longitude: match.longitude,
   };
 }
 
 async function getWeather(city = 'Ankara') {
-  const normalizedCity = city[0].toUpperCase() + city.slice(1).toLowerCase();
-  try {
-    const coord = cityCoords[normalizedCity] || cityCoords.Ankara;
-    const response = await http.get(`${mgmUrl}/web/sondurumlar`, {
-      params: { merkezid: coord.merkezId },
-    });
-    const raw = Array.isArray(response.data) ? response.data[0] : response.data;
-    const weather = buildWeather(normalizedCity);
-    if (raw) {
-      weather.current = {
-        ...weather.current,
-        sicaklik: Number(raw.sicaklik || weather.current.sicaklik),
-        hissedilen: Number(raw.hadpilesicaklik || weather.current.hissedilen),
-        nem: Number(raw.nem || weather.current.nem),
-        ruzgarHizi: Number(raw.rpilesruzgarhizi || raw.ruzgarhiz || weather.current.ruzgarHizi),
-        ruzgarYonu: Number(raw.rpilesruzgaryonu || weather.current.ruzgarYonu),
-        basinc: Number(raw.rpilesbasinc || raw.basinc || weather.current.basinc),
-        durumKodu: raw.hadisekodu || raw.hadiseKodu || weather.current.durumKodu,
-        olcumZamani: raw.olcumZamani || weather.current.olcumZamani,
+  const location = await resolveCity(city);
+  const response = await http.get('https://api.open-meteo.com/v1/forecast', {
+    params: {
+      latitude: location.latitude,
+      longitude: location.longitude,
+      current: 'temperature_2m,apparent_temperature,relative_humidity_2m,pressure_msl,wind_speed_10m,wind_direction_10m,weather_code',
+      hourly: 'temperature_2m,weather_code',
+      daily: 'temperature_2m_max,temperature_2m_min,weather_code',
+      forecast_days: 5,
+      timezone: 'Europe/Istanbul',
+    },
+  });
+
+  const current = response.data?.current || {};
+  const daily = response.data?.daily || {};
+  const hourly = response.data?.hourly || {};
+  const currentCode = weatherCodeToDescription(Number(current.weather_code));
+
+  return {
+    city: location.city,
+    merkezId: null,
+    current: {
+      sicaklik: Number(current.temperature_2m || 0),
+      hissedilen: Number(current.apparent_temperature || 0),
+      nem: Number(current.relative_humidity_2m || 0),
+      ruzgarHizi: Number(current.wind_speed_10m || 0),
+      ruzgarYonu: Number(current.wind_direction_10m || 0),
+      basinc: Number(current.pressure_msl || 0),
+      durumKodu: String(current.weather_code || ''),
+      aciklama: currentCode.description,
+      icon: currentCode.icon,
+      olcumZamani: current.time || new Date().toISOString(),
+    },
+    hourly: (hourly.time || []).slice(0, 8).map((time, index) => {
+      const hourlyCode = weatherCodeToDescription(Number(hourly.weather_code?.[index]));
+      return {
+        saat: String(time).slice(11, 16),
+        sicaklik: Number(hourly.temperature_2m?.[index] || 0),
+        icon: hourlyCode.icon,
       };
-    }
-    return { ...weather, meta: { source: 'mgm' } };
-  } catch (error) {
-    return {
-      ...buildWeather(normalizedCity),
-      meta: { source: 'mgm-fallback', error: error.message },
-    };
-  }
+    }),
+    daily: (daily.time || []).slice(0, 5).map((time, index) => {
+      const dailyCode = weatherCodeToDescription(Number(daily.weather_code?.[index]));
+      return {
+        gun: new Date(time).toLocaleDateString('tr-TR', { weekday: 'short' }),
+        min: Number(daily.temperature_2m_min?.[index] || 0),
+        max: Number(daily.temperature_2m_max?.[index] || 0),
+        icon: dailyCode.icon,
+      };
+    }),
+    favorites: ['Istanbul', 'Bitlis', 'Izmir'],
+    meta: { source: 'open-meteo', cached: false },
+  };
 }
 
 module.exports = { getWeather };
